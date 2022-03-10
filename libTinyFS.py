@@ -11,6 +11,8 @@ ERR_UNMOUNTED = -500
 ERR_MOUNTED = -501
 ERR_FS_FORMAT = -600
 ERR_INCONSISTENT_BLOCKS = -400
+ERR_DIR_ALIGNMENT = -601
+ERR_DISK = -100
 
 
 # Bytes in block
@@ -24,7 +26,7 @@ DISK_SIZE = DEFAULT_DISK_SIZE
 DEFAULT_DISK_NAME = "tinyFSDisk"
 
 # block types
-SUPER_BLOCK = 1
+SUPER_BLOCK = 0
 FREE_BLOCK = 2
 INODE_BLOCK = 3
 DATA_BLOCK = 4
@@ -35,6 +37,10 @@ DIRENT_NUM = 6
 TYPE = 0
 NEXT_BLOCK = 1
 SIZE = 2
+
+SB_NUM = 1
+SB_NAME = 2
+SB_FREE = 3
 
 MAGIC_NUMBER = 0x5A
 
@@ -49,6 +55,9 @@ DIRENT = {}
 
 # Disk reference number from libdisk
 DISK = None
+
+# First free block, points to next free block
+FREE_HEAD = None
 
 
 # Finds all bytes available from blockNum, including further blocks
@@ -76,7 +85,7 @@ def fetchBytes(blockNum):
         if blockType == DIRENT_NAME:  # reading string data for names of files
             # ignore metadata and stop at size
             rawData = blockData[3:sz].decode("utf-8")
-            rawData.split('n')
+            rawData.split('\n')
             data += rawData
         else:
             data += list(blockData[3:sz])
@@ -86,6 +95,7 @@ def fetchBytes(blockNum):
         nextBlock = list(blockData[NEXT_BLOCK])
     return data
 
+
 ###
 # Make an empty TinyFS of size nBytes on specified file
 # Use libDisk to open file, format file to be mounted
@@ -94,8 +104,6 @@ def fetchBytes(blockNum):
 # superblock entry in order: magic_number, root inode pointer, freeblock pointer
 ###
 # tfs_mkfs(str, int) -> int (Success/Error Code)
-
-
 def tfs_mkfs(filename, nBytes=DEFAULT_DISK_SIZE):
     global DISK_SIZE
     DISK_SIZE = nBytes
@@ -106,22 +114,54 @@ def tfs_mkfs(filename, nBytes=DEFAULT_DISK_SIZE):
 
     global DISK
     DISK = diskNum
-    superBlock = [0]*3
+    superBlock = [0]*5
     superBlock[0] = MAGIC_NUMBER
     # Root dirent structure always in first 2 blocks (points to other blocks for storage)
-    superBlock[1] = 1  # INODE BLOCK NUMBER
-    superBlock[2] = 2  # NAMES (separated by '\n')
+    superBlock[SB_NUM] = 1  # INODE BLOCK NUMBERS
+    superBlock[SB_NAME] = 2  # NAMES (separated by '\n')
     # first free block starts in third block, updated whenever blocks get filled
-    superBlock[3] = 3
+    superBlock[SB_FREE] = 3
+    global FREE_HEAD  # so we can change it later
+    FREE_HEAD = 3
+
     supBuf = Buffer()
     supBuf.data_bytes = bytearray(superBlock)  # save superblock to disk
-    writeBlock(DISK, 0, supBuf)
+    if writeBlock(DISK, 0, supBuf):
+        return ERR_DISK
+
+    # set up dirent block number block
+    numBuf = Buffer()
+    numData = [0] * 3
+    numData[TYPE] = DIRENT_NUM
+    numBuf.data_bytes = bytearray(numData)
+    if writeBlock(DISK, superBlock[SB_NUM], numBuf) < 0:
+        return ERR_DISK
+
+    # set up dirent file name block
+    nameBuf = Buffer()
+    nameData = [0] * 3
+    nameData[TYPE] = DIRENT_NAME
+    nameBuf.data_bytes = bytearray(nameData)
+    if writeBlock(DISK, superBlock[SB_NAME], nameBuf) < 0:
+        return ERR_DISK
 
     # free all blocks after super root Inode
-    for bNum in range(3, int(DISK_SIZE/BLOCKSIZE)):
+    for bNum in range(3, int(DISK_SIZE/BLOCKSIZE)-1):
         nextBlock = Buffer()
-        nextBlock.data_bytes = bytearray([bNum+1])
-        writeBlock(DISK, bNum, nextBlock)
+        freeInfo = [0]*3
+        freeInfo[TYPE] = FREE_BLOCK
+        freeInfo[NEXT_BLOCK] = bNum+1
+        nextBlock.data_bytes = bytearray(freeInfo)
+        if writeBlock(DISK, bNum, nextBlock) < 0:
+            return ERR_DISK
+
+    # Info for final free block, points nowhere but is free
+    lastInfo = [0]*5
+    lastInfo[TYPE] = FREE_BLOCK
+    buf = Buffer()
+    buf.data_bytes = bytearray(lastInfo)
+    if writeBlock(DISK, int(DISK_SIZE/BLOCKSIZE)-1, buf) < 0:
+        return ERR_DISK
 
     return 0
 
@@ -135,9 +175,8 @@ def tfs_mount(filename):
     diskNum = openDisk(filename, 0)  # open without overwriting data
     tfs_unmount()
     superBlock = Buffer()
-    readRet = readBlock(diskNum, 0, superBlock)  # fetch super block
-    if readRet < 0:
-        return readRet  # Error
+    if readBlock(diskNum, 0, superBlock) < 0:  # fetch super block
+        return ERR_DISK  # Error
 
     superBlock = list(superBlock.data_bytes)
 
@@ -145,18 +184,38 @@ def tfs_mount(filename):
         return ERR_FS_FORMAT  # Invalid FS format
 
     direntBlocks = fetchBytes(superBlock[1])  # fetches Inode block numbers
-    direntNames = fetchStrings(superBlock[2])  # fetches file names
+    direntNames = fetchBytes(superBlock[2])  # fetches file names
+
+    if len(direntBlocks) != len(direntNames):  # there should be an inode for every name
+        return ERR_DIR_ALIGNMENT
+
+    # connect file names to inode block locations in local structure
+    global DIRENT
+    for i in range(len(direntBlocks)):
+        DIRENT[direntNames[i]] = direntBlocks[i]
 
 
 ###
 # Cleanly unmount the current filesystem
+# write any important data to superblock, close all files (?)
 ###
 # tfs_unmount() -> int (Success/Error Code)
 def tfs_unmount():
-    # if DISK is None:
-    #     return ERR_UNMOUNTED
+    global DISK
+    if DISK is None:
+        return ERR_UNMOUNTED
 
-    # saveData()
+    supData = [0]*5
+    supData[SB_FREE] = FREE_HEAD  # free block head probably moved
+    supBuf = Buffer()
+    supBuf.data_bytes = bytearray(supData)
+    if writeBlock(DISK, SUPER_BLOCK, supBuf) < 0:
+        return ERR_DISK
+
+    if closeDisk(DISK) < 0:
+        return ERR_DISK
+
+    DISK = None
     return -1
 
 
@@ -166,13 +225,12 @@ def tfs_unmount():
 ###
 # tfs_open(str) -> int (file descriptor/Error Code)
 def tfs_open(name):
-    fd = None
-    global DIRENT_CACHE
-    if name in DIRENT_CACHE:
-        fd = DIRENT_CACHE[name]
+    inode = None
+    global DIRENT
+    if name in DIRENT:
+        inode = DIRENT[name]
     else:
-
-        # search for name
+        pass
         #   create file?
         #
 
