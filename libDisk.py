@@ -17,7 +17,7 @@ diskTracker_Dic = {}
 
 class Buffer:
     filled = 0
-    data_bytes = bytearray(0)
+    data_bytes = []
 
 
 ###
@@ -41,7 +41,7 @@ def openDisk(filename, nBytes):
         with open(filename, 'wb') as binfile:
             # This writes BLOCKSIZE * nBytes, it should be just nBytes (divisible by BLOCKSIZE)
             # binfile.write(b'\x00' * BLOCKSIZE * nBytes)
-            binfile.write(b'\x00' * BLOCKSIZE)
+            binfile.write(b'\x00' * nBytes)
 
     diskNum = len(diskTracker_Dic)
     diskTracker_Dic.update({diskNum: (filename, 1)})
@@ -97,7 +97,7 @@ def writeBlock(disk, bNum, block):
         binfile.seek(starting_byte)  # skip the initial bytes
         binfile.write(block.data_bytes)
         # Empty the provided block (Buffer)
-        block.data_bytes = bytearray(0)
+        block.data_bytes = []  # bytearray(0)
         block.filled = 0
     return 0
 
@@ -166,7 +166,7 @@ class TestlibDiskMethods(unittest.TestCase):
         global diskTracker_Dic
         functionReturn = openDisk("testing_openDisk", 2)
 
-        ff_bytes = bytearray()
+        ff_bytes = []  # bytearray()
         ff_bytes.append(0xFF)
 
         # Change byte 255 to FF just to check
