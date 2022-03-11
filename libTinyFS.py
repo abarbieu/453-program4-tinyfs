@@ -483,3 +483,14 @@ def tfs_makeRW(name):
     newMeta.data_bytes = bytearray(meta)
     writeBlock(DISK, DIRENT[name], newMeta)
     return 0
+
+
+# write one byte to file at point in DRT
+def tfs_writeByte(fd, dataByte):
+    data = readViaInode(fd)
+    data[DRT[fd]] = dataByte
+
+    b = Buffer()
+    b.data_bytes = bytearray(data)
+    writeViaInode(fd, data)
+    return 0
