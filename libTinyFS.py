@@ -455,7 +455,7 @@ def tfs_readdir():
     [print(f) for f in list(DIRENT.keys())]
 
 
-# make file indicated by name write only
+# make file indicated by name read only
 def tfs_makeRO(name):
     if name not in DIRENT:
         print(f"tfs_makeRO: ERR_FILE_NOT_FOUND name: {name}")
