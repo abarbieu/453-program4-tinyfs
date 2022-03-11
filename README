@@ -1,0 +1,22 @@
+Names: Aidan Barbieux, Greg Bisbjerg
+
+How well our tinyFS works:
+
+Our tinyFS seems to work as well as we could hope, no tests for performance were done, though compared
+to a real file system we would expect it to do somewhat worse, though at most scales this probably
+wouldn't be noticeable
+
+One comment is that, in all our tests, our files were quite small, and as such most of our memory was
+being used to keep track of them and our inodes contained a large amount of empty space.
+
+Additional functionality:
+
+We implemented permissions (read vs read-write) including byte-level writingand directory listing with
+file renaming. At the bottom of our demo file we have a section dedicated for these features.
+
+Limitations and Bugs:
+
+Currently the maximum file size is larger than the total memory (65k vs 10k), though if no free blocks
+are available for a file an error will be returned. Another limitation is the lack of an interface for
+dealing with different data types. For example, storing file names for our root directory involved manual
+decoding of byte-level string information.
