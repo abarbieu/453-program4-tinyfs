@@ -18,6 +18,7 @@ ERR_INCONSISTENT_BLOCKS = -400
 ERR_DIR_ALIGNMENT = -601
 ERR_DISK = -100
 ERR_NO_FREE_BLOCK = -410
+ERR_FILE_CLOSED = -420
 
 
 # Bytes in block
@@ -34,7 +35,7 @@ DISK_SIZE = DEFAULT_DISK_SIZE
 DEFAULT_DISK_NAME = "tinyFSDisk"
 
 # block types
-FREE_BLOCKT = 2
+FREE_BLOCKT = 0
 INODE_BLOCKT = 3
 DATA_BLOCKT = 4
 DIRENT_NAMET = 5
@@ -47,9 +48,9 @@ SIZE_BYTE = 1
 
 # named superblock indecies
 SUPER_BLOCK = 0
-SB_NUM = 1
-SB_NAME = 2
-SB_FREE = 3
+SB_FREE = 1
+SB_NUM = 2
+SB_NAME = 3
 
 MAGIC_NUMBER = 0x5A
 
@@ -166,7 +167,7 @@ def writeBlockMeta(bNum, data):
     return data[dataWriteLen:]  # returns data not written
 
 
-# finda inode via block number, writes data (list), overwriting, updates metadata
+# finds inode via block number, writes data (list), overwriting, updates metadata
 def writeViaInode(inodeBNum, data):
     iBuf = Buffer()
     readBlock(DISK, inodeBNum, iBuf)
@@ -209,7 +210,6 @@ def writeViaInode(inodeBNum, data):
 ###
 # tfs_mkfs(str, int) -> int (Success/Error Code)
 def tfs_mkfs(filename, nBytes=DEFAULT_DISK_SIZE):
-    status = 0
     numBlocks = int(nBytes/BLOCKSIZE)
     global DISK_SIZE
     DISK_SIZE = nBytes
@@ -221,6 +221,7 @@ def tfs_mkfs(filename, nBytes=DEFAULT_DISK_SIZE):
 
     global DISK
     DISK = diskNum
+    global SB
     SB = [0] * META_SIZE
     SB[0] = MAGIC_NUMBER
 
@@ -272,34 +273,32 @@ def tfs_mount(filename):
     if SB[0] != 0x5A:
         return ERR_FS_FORMAT  # Invalid FS format
 
-    # print(readViaInode(SB[SB_FREE]))
-
     for i in range(10):
         b = Buffer()
         readBlock(DISK, i, b)
-        print(list(b.data_bytes))
+        print(list(b.data_bytes)[:50])
 
-    # fBuf = Buffer()
-    # if readBlock(DISK, SB[SB_FREE], fBuf) < 0:
-    #     print("tfS_mount: DISK ERROR")
-    #     return ERR_DISK
-    # global FREE_MASK
-    # FREE_MASK =  readFromInode()# list(fBuf.data_bytes)
+    # load free mask into memory
+    global FREE_MASK
+    FREE_MASK = readViaInode(SB[SB_FREE])
 
-    # d1Buf = Buffer()
-    # readBlock(DISK, SB[SB_NUM], d1Buf)
+    # load root dir into memory
+    global DIRENT
+    DIRENT = {}
+    dirNums = readViaInode(SB[SB_NUM])
+    # decode array of ascii numbers into array of file names
+    dirNames = readViaInode(SB[SB_NAME])
+    dirNames = bytearray(dirNames).decode().split("\x00")[:-1]
 
-    # d2Buf = Buffer()
-    # readBlock(DISK, SB[SB_NAME], d2Buf)
+    for i in range(len(dirNums)):
+        DIRENT[dirNames[i]] = dirNums[i]
 
-    # return 0
-    # if len(direntBlocks) != len(direntNames):  # there should be an inode for every name
-    #     return ERR_DIR_ALIGNMENT
+    print(DIRENT)
 
-    # # connect file names to inode block locations in local structure
-    # global DIRENT
-    # for i in range(len(direntBlocks)):
-    #     DIRENT[direntNames[i]] = direntBlocks[i]
+    # for i in range(10):
+    #     b = Buffer()
+    #     readBlock(DISK, i, b)
+    #     print(list(b.data_bytes))
 
 
 ###
@@ -308,23 +307,16 @@ def tfs_mount(filename):
 ###
 # tfs_unmount() -> int (Success/Error Code)
 def tfs_unmount():
+    supBuf = Buffer()
+    supBuf.data_bytes = bytearray(SB)  # save SB to disk
+    if writeBlock(DISK, SUPER_BLOCK, supBuf) < 0:
+        return ERR_DISK
+    writeViaInode(SB[SB_FREE], FREE_MASK)
+    writeViaInode(SB[SB_NUM], DIRENT.values())
+    writeViaInode(SB[SB_NAME], DIRENT.keys())
+    global DRT
+    DRT = {}
     return 0
-#     global DISK
-#     if DISK is None:
-#         return ERR_UNMOUNTED
-
-#     supData = [0]*5
-#     supData[SB_FREE] = FREE_HEAD  # free block head probably moved
-#     supBuf = Buffer()
-#     supBuf.data_bytes = bytearray(supData)
-#     if writeBlock(DISK, SUPER_BLOCK, supBuf) < 0:
-#         return ERR_DISK
-
-#     if closeDisk(DISK) < 0:
-#         return ERR_DISK
-
-#     DISK = None
-#     return -1
 
 
 ###
@@ -333,14 +325,11 @@ def tfs_unmount():
 ###
 # tfs_open(str) -> int (file descriptor/Error Code)
 def tfs_open(name):
-    inode = None
     global DIRENT
-    if name in DIRENT:
-        inode = DIRENT[name]
-    else:
-        pass
-        #   create file?
-        #
+    if name not in DIRENT:
+        DIRENT[name] = createInode([], 0)  # create empty inode
+    DRT[DIRENT[name]] = 0
+    return DIRENT[name]
 
 
 ###
@@ -348,16 +337,21 @@ def tfs_open(name):
 ###
 # tfs_close(fileDescriptor) -> int (Success/Error Code)
 def tfs_close(fileDescriptor):
-    pass
+    del DRT[fileDescriptor]
+    return 0
 
 
 ###
 # Write to FD: buffer "buffer" of size "size", representing entire file's contents
 # Set file pointer to start of file (0)
 ###
-# tfs_write(fileDescriptor, Buffer, int) -> int (Success/Error Code)
-def tfs_write(FD, buffer, size):
-    pass
+# tfs_write(fileDescriptor, list, int) -> int (Success/Error Code)
+def tfs_write(FD, data):
+    if FD not in DRT:
+        return ERR_FILE_CLOSED
+    DRT[FD] = 0
+
+    return writeViaInode(FD, data)
 
 
 ###
