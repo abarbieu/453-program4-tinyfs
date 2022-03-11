@@ -82,8 +82,8 @@ def claimFreeBlock(first=True):
     if first:
         bNum = next((i for i, x in enumerate(FREE_MASK) if x == EMPTY), None)
     else:
-        bNum = next((i for i, x in enumerate(
-            reversed(FREE_MASK)) if x == EMPTY), None)
+        bNum = len(FREE_MASK) - next((i for i, x in enumerate(
+            reversed(FREE_MASK)) if x == EMPTY), None) - 1
     FREE_MASK[bNum] = FILLED
     return bNum
 
@@ -146,7 +146,7 @@ def readViaInode(inodeBNum):
         readBlock(DISK, bNum, buf)
         bData = list(buf.data_bytes)
         # from block, read all data after meta data, up to size of block
-        allData += bData[META_SIZE:bData[SIZE_BYTE]]
+        allData += bData[META_SIZE:bData[SIZE_BYTE]+META_SIZE]
     return allData
 
 
@@ -190,6 +190,13 @@ def writeViaInode(inodeBNum, data):
         restData = writeBlockMeta(currBlock, restData)
         numBlocksUsed += 1
 
+    emptyBuf = Buffer()
+    emptyBuf.data_bytes = bytearray([0] * (BLOCKSIZE-META_SIZE))
+    # used fewer blocks than previously allocated
+    if numBlocksUsed < iMeta[SIZE_BYTE]:
+        for i in range(numBlocksUsed, iMeta[SIZE_BYTE]):
+            writeBlock(DISK, iData[i], emptyBuf)
+
     # update meta data for this inode
     newInodeData = iMeta
     newInodeData[SIZE_BYTE] = numBlocksUsed
@@ -201,6 +208,18 @@ def writeViaInode(inodeBNum, data):
     return 0
 
 
+# prints first 50 bytes of first and last 10 blocks
+def printMem():
+    for i in range(10):
+        b = Buffer()
+        readBlock(DISK, i, b)
+        print(f"Block {i}: {list(b.data_bytes)[:50]}")
+    print("...\nlast10:\n...")
+    for i in range(int(DISK_SIZE/BLOCKSIZE)-10, int(DISK_SIZE/BLOCKSIZE)):
+        b = Buffer()
+        readBlock(DISK, i, b)
+        print(f"Block {i}: {list(b.data_bytes)[:50]}")
+
 ###
 # Make an empty TinyFS of size nBytes on specified file
 # Use libDisk to open file, format file to be mounted
@@ -209,6 +228,8 @@ def writeViaInode(inodeBNum, data):
 # superblock entry in order: magic_number, root inode pointer, freeblock pointer
 ###
 # tfs_mkfs(str, int) -> int (Success/Error Code)
+
+
 def tfs_mkfs(filename, nBytes=DEFAULT_DISK_SIZE):
     numBlocks = int(nBytes/BLOCKSIZE)
     global DISK_SIZE
@@ -273,11 +294,6 @@ def tfs_mount(filename):
     if SB[0] != 0x5A:
         return ERR_FS_FORMAT  # Invalid FS format
 
-    for i in range(10):
-        b = Buffer()
-        readBlock(DISK, i, b)
-        print(list(b.data_bytes)[:50])
-
     # load free mask into memory
     global FREE_MASK
     FREE_MASK = readViaInode(SB[SB_FREE])
@@ -293,12 +309,7 @@ def tfs_mount(filename):
     for i in range(len(dirNums)):
         DIRENT[dirNames[i]] = dirNums[i]
 
-    print(DIRENT)
-
-    # for i in range(10):
-    #     b = Buffer()
-    #     readBlock(DISK, i, b)
-    #     print(list(b.data_bytes))
+    return 0
 
 
 ###
@@ -314,8 +325,6 @@ def tfs_unmount():
     writeViaInode(SB[SB_FREE], FREE_MASK)
     writeViaInode(SB[SB_NUM], DIRENT.values())
     writeViaInode(SB[SB_NAME], DIRENT.keys())
-    global DRT
-    DRT = {}
     return 0
 
 

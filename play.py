@@ -4,6 +4,9 @@ from libTinyFS import *
 
 dnum = tfs_mkfs("tst.dsk")
 tfs_mount("tst.dsk")
+fd = tfs_open("file1.tst")
+print(fd, tfs_write(fd, [1, 2, 3, 4, 5]))
+printMem()
 # diskNum = openDisk("test", 1024)
 
 # names = ["a\n", "b\n", "fuckthis\n"]
