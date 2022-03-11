@@ -1,6 +1,13 @@
 import sys
 from libDisk import *
 from libTinyFS import *
+# design decisions
+# max file size of 65k since inode is one block always
+# header of inode is 8 bytes
+# free blocks taken care of by bitmask
+# superblock like data in front, datablocks at end (arbitrary)
+#
+
 
 d1 = tfs_mkfs("tst1")
 fd = tfs_open("f1")

@@ -490,7 +490,5 @@ def tfs_writeByte(fd, dataByte):
     data = readViaInode(fd)
     data[DRT[fd]] = dataByte
 
-    b = Buffer()
-    b.data_bytes = bytearray(data)
-    writeViaInode(fd, data)
+    writeViaInode(fd, bytearray(data))
     return 0
