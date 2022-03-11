@@ -20,6 +20,7 @@ ERR_DISK = -100
 ERR_NO_FREE_BLOCK = -410
 ERR_FILE_CLOSED = -420
 ERR_EOF = -399
+ERR_MOUNTED = -650
 
 
 # Bytes in block
@@ -46,7 +47,6 @@ FREE_MASKT = 7
 # named indecies in block
 TYPE_BYTE = 0
 SIZE_BYTE = 1
-END_BYTE = 2
 
 # named superblock indecies
 SUPER_BLOCK = 0
@@ -97,7 +97,6 @@ def createInode(blocks, bType=INODE_BLOCKT):
     idata = [0]*META_SIZE
     idata[TYPE_BYTE] = bType
     idata[SIZE_BYTE] = len(blocks)  # size of data
-    idata[END_BYTE] = len(blocks)+META_SIZE  # pointer to end of block data
     idata += blocks
     # 8 bytes of meta data space then all the blocks
 
@@ -120,7 +119,6 @@ def createInode(blocks, bType=INODE_BLOCKT):
 def updateInode(blockNum, newBlocks):
     idata = [0]*META_SIZE
     idata[SIZE_BYTE] = len(newBlocks)  # size of data
-    idata[END_BYTE] = len(newBlocks)+META_SIZE  # pointer to end of block data
     idata += newBlocks
 
     ibuf = Buffer()
@@ -156,7 +154,7 @@ def readViaInode(inodeBNum, meta=False):
         readBlock(DISK, bNum, buf)
         bData = list(buf.data_bytes)
         # from block, read all data after meta data, up to end of block
-        allData += bData[META_SIZE:bData[END_BYTE]]
+        allData += bData[META_SIZE:bData[SIZE_BYTE] + META_SIZE]
     return allData
 
 
@@ -166,7 +164,6 @@ def writeBlockMeta(bNum, data):
     # Either write all data or fill available space
     dataWriteLen = min(BLOCKSIZE-META_SIZE, len(data))
     toWrite[SIZE_BYTE] = dataWriteLen
-    toWrite[END_BYTE] = dataWriteLen + META_SIZE
     toWrite[TYPE_BYTE] = DATA_BLOCKT
 
     # only write data that we can
@@ -178,7 +175,7 @@ def writeBlockMeta(bNum, data):
     return data[dataWriteLen:]  # returns data not written
 
 
-# finds inode via block number, writes data (list), overwriting, updates metadata
+# finds inode via block number, writes data (bytearray), overwriting, updates metadata
 def writeViaInode(inodeBNum, data):
     iBuf = Buffer()
     readBlock(DISK, inodeBNum, iBuf)
@@ -231,6 +228,7 @@ def printMem():
         readBlock(DISK, i, b)
         print(f"Block {i}: {list(b.data_bytes)[:50]}")
 
+
 ###
 # Make an empty TinyFS of size nBytes on specified file
 # Use libDisk to open file, format file to be mounted
@@ -239,9 +237,11 @@ def printMem():
 # superblock entry in order: magic_number, root inode pointer, freeblock pointer
 ###
 # tfs_mkfs(str, int) -> int (Success/Error Code)
-
-
 def tfs_mkfs(filename, nBytes=DEFAULT_DISK_SIZE):
+    global DISK
+    if DISK is not None:
+        print(f"tfs_mkfs: ERR_MOUNTED, mounted disk: {DISK}")
+        return ERR_MOUNTED
     numBlocks = int(nBytes/BLOCKSIZE)
     global DISK_SIZE
     DISK_SIZE = nBytes
@@ -251,7 +251,6 @@ def tfs_mkfs(filename, nBytes=DEFAULT_DISK_SIZE):
         print("tfs_mkfs: ERR_DISK_CREATION")
         return diskNum  # ERROR
 
-    global DISK
     DISK = diskNum
     global SB
     SB = [0] * META_SIZE
@@ -274,7 +273,7 @@ def tfs_mkfs(filename, nBytes=DEFAULT_DISK_SIZE):
     SB[SB_NAME] = createInode([direntNameBlock], bType=DIRENT_NAMET)
 
     # save Free mask
-    writeViaInode(SB[SB_FREE], FREE_MASK)
+    writeViaInode(SB[SB_FREE], bytearray(FREE_MASK))
 
     supBuf = Buffer()
     supBuf.data_bytes = bytearray(SB)  # save SB to disk
@@ -290,10 +289,12 @@ def tfs_mkfs(filename, nBytes=DEFAULT_DISK_SIZE):
 ###
 # tfs_mount(str) -> int (Success/Error Code)
 def tfs_mount(filename):
-    diskNum = openDisk(filename, 0)  # open without overwriting data
     global DISK
+    if DISK is not None:
+        print(f"tfs_mkfs: ERR_MOUNTED, mounted disk: {DISK}")
+        return ERR_MOUNTED
+    diskNum = openDisk(filename, 0)  # open without overwriting data
     DISK = diskNum
-    tfs_unmount()
 
     superBlock = Buffer()
     if readBlock(diskNum, 0, superBlock) < 0:  # fetch super block
@@ -329,13 +330,17 @@ def tfs_mount(filename):
 ###
 # tfs_unmount() -> int (Success/Error Code)
 def tfs_unmount():
+    global DISK
     supBuf = Buffer()
     supBuf.data_bytes = bytearray(SB)  # save SB to disk
     if writeBlock(DISK, SUPER_BLOCK, supBuf) < 0:
         return ERR_DISK
-    writeViaInode(SB[SB_FREE], FREE_MASK)
-    writeViaInode(SB[SB_NUM], DIRENT.values())
-    writeViaInode(SB[SB_NAME], DIRENT.keys())
+    writeViaInode(SB[SB_FREE], bytearray(FREE_MASK))
+    writeViaInode(SB[SB_NUM], list(DIRENT.values()))
+    encodedNames = bytearray()
+    [encodedNames.extend((n+'\0').encode()) for n in list(DIRENT.keys())]
+    writeViaInode(SB[SB_NAME], encodedNames)
+    DISK = None
     return 0
 
 
@@ -384,13 +389,17 @@ def tfs_delete(FD):
     meta = list(iBuf.data_bytes)[:META_SIZE]
     blocks = list(iBuf.data_bytes)[META_SIZE:]
 
-    emptyBuf = Buffer()
-    emptyBuf.data_bytes = bytearray([0] * (BLOCKSIZE-META_SIZE))
     # 'free' all blocks pointed to by FD
     global FREE_MASK
     for i in range(meta[SIZE_BYTE]):
+        emptyBuf = Buffer()
+        allZero = [0] * (BLOCKSIZE-META_SIZE)
+        emptyBuf.data_bytes = bytearray(allZero)
         writeBlock(DISK, blocks[i], emptyBuf)
         FREE_MASK[blocks[i]] = EMPTY
+    emptyBuf = Buffer()
+    allZero = [0] * (BLOCKSIZE-META_SIZE)
+    emptyBuf.data_bytes = bytearray(allZero)
     writeBlock(DISK, FD, emptyBuf)  # clear inode block and set it to free
     FREE_MASK[FD] = EMPTY
     global DIRENT
@@ -414,7 +423,8 @@ def tfs_readByte(FD, buffer):
         return ERR_EOF
     dbyte = data[DRT[FD]]
     DRT[FD] += 1
-    return dbyte
+    buffer.data_bytes = bytearray([dbyte])
+    return 0
 
 
 ###
