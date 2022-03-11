@@ -1,5 +1,6 @@
 from asyncore import write
 from curses.ascii import VT
+from tkinter.tix import NoteBook
 
 from numpy import byte
 from libDisk import *
@@ -321,6 +322,8 @@ def tfs_mount(filename):
 # tfs_unmount() -> int (Success/Error Code)
 def tfs_unmount():
     global DISK
+    global DIRENT
+    global DRT
     supBuf = Buffer()
     supBuf.data_bytes = bytearray(SB)  # save SB to disk
     if writeBlock(DISK, SUPER_BLOCK, supBuf) < 0:
@@ -331,6 +334,8 @@ def tfs_unmount():
     [encodedNames.extend((n+'\0').encode()) for n in list(DIRENT.keys())]
     writeViaInode(SB[SB_NAME], encodedNames)
     DISK = None
+    DIRENT = {}
+    DRT = {}
     return 0
 
 

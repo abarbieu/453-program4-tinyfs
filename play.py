@@ -2,83 +2,91 @@ import sys
 from libDisk import *
 from libTinyFS import *
 
-dnum = tfs_mkfs("tst.dsk")
-tfs_mount("tst.dsk")
-fd = tfs_open("file1.tst")
-tfs_write(fd, [1, 2, 3, 4, 5])
-tfs_close(fd)
-fd = tfs_open("file1.tst")
-tfs_write(fd, [9, 8, 7, 99, 9, ])
-printMem()
-print('\n\n')
-
-
-tfs_mkfs("tst1.dsk")
-tfs_unmount()
-tfs_mkfs("tst1.dsk")
-printMem()
-print('\n\n')
-
-fd = tfs_open("file2.tst")
-tfs_write(fd, [6, 6, 6, 66])
-tfs_close(fd)
-fd = tfs_open("file2.tst")
-tfs_write(fd, [8, 8, 8, 88, 8])
-printMem()
-
-tfs_unmount()
-tfs_mount("tst.dsk")
-printMem()
-
-
-fd = tfs_open("file1.tst")
-buf = Buffer()
-tfs_readByte(fd, buf)
-print(list(buf.data_bytes))
-
-
-fd2 = tfs_open("file2")
-
-
-tfs_seek(fd, 3)
-tfs_readByte(fd, buf)
-print('ff', list(buf.data_bytes))
-
-tfs_readdir()
-tfs_rename("file1.tst", "renamed")
+d1 = tfs_mkfs("tst1")
+fd = tfs_open("f1")
 tfs_readdir()
 
+tfs_unmount()
+tfs_mkfs("tst2")
+fd2 = tfs_open("f2")
+tfs_readdir()
 
-newFD = tfs_open("newfile")
-tfs_write(newFD, list(range(20)))
-
-tfs_readByte(newFD, buf)
-print(list(buf.data_bytes))
-
-tfs_seek(newFD, 10)
-tfs_readByte(newFD, buf)
-print(list(buf.data_bytes))
+# tfs_write(fd, [1, 2, 3, 4, 5])
+# tfs_close(fd)
+# fd = tfs_open("file1.tst")
+# tfs_write(fd, [9, 8, 7, 99, 9, ])
+# printMem()
+# print('\n\n')
 
 
-tfs_makeRO("newfile")
-tfs_write(newFD, [9, 9, 9])
-tfs_readByte(newFD, buf)
-print(list(buf.data_bytes))
-tfs_readByte(newFD, buf)
-print(list(buf.data_bytes))
-tfs_readByte(newFD, buf)
-print(list(buf.data_bytes))
+# tfs_mkfs("tst1.dsk")
+# tfs_unmount()
+# tfs_mkfs("tst1.dsk")
+# printMem()
+# print('\n\n')
 
-tfs_makeRW("newfile")
-tfs_write(newFD, [9, 9, 9])
-tfs_readByte(newFD, buf)
-print(list(buf.data_bytes))
-tfs_readByte(newFD, buf)
-print(list(buf.data_bytes))
-tfs_readByte(newFD, buf)
-print(list(buf.data_bytes))
-tfs_readByte(newFD, buf)
-print(list(buf.data_bytes))
+# fd = tfs_open("file2.tst")
+# tfs_write(fd, [6, 6, 6, 66])
+# tfs_close(fd)
+# fd = tfs_open("file2.tst")
+# tfs_write(fd, [8, 8, 8, 88, 8])
+# printMem()
+
+# tfs_unmount()
+# tfs_mount("tst.dsk")
+# printMem()
+
+
+# fd = tfs_open("file1.tst")
+# buf = Buffer()
+# tfs_readByte(fd, buf)
+# print(list(buf.data_bytes))
+
+
+# fd2 = tfs_open("file2")
+
+
+# tfs_seek(fd, 3)
+# tfs_readByte(fd, buf)
+# print('ff', list(buf.data_bytes))
+
+# tfs_readdir()
+# tfs_rename("file1.tst", "renamed")
+# tfs_readdir()
+
+
+# newFD = tfs_open("newfile")
+# tfs_write(newFD, list(range(20)))
+
+# tfs_readByte(newFD, buf)
+# print(list(buf.data_bytes))
+
+# tfs_seek(newFD, 10)
+# tfs_readByte(newFD, buf)
+# print(list(buf.data_bytes))
+
+
+# tfs_makeRO("newfile")
+# tfs_write(newFD, [9, 9, 9])
+# tfs_readByte(newFD, buf)
+# print(list(buf.data_bytes))
+# tfs_readByte(newFD, buf)
+# print(list(buf.data_bytes))
+# tfs_readByte(newFD, buf)
+# print(list(buf.data_bytes))
+
+# tfs_makeRW("newfile")
+# tfs_write(newFD, [9, 9, 9])
+# tfs_readByte(newFD, buf)
+# print(list(buf.data_bytes))
+# tfs_readByte(newFD, buf)
+# print(list(buf.data_bytes))
+# tfs_readByte(newFD, buf)
+# print(list(buf.data_bytes))
+# tfs_readByte(newFD, buf)
+# print(list(buf.data_bytes))
+
+# tfs_readdir()
 # printMem()
 # tfs_unmount()
 # printMem()
