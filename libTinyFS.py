@@ -19,8 +19,10 @@ ERR_DIR_ALIGNMENT = -601
 ERR_DISK = -100
 ERR_NO_FREE_BLOCK = -410
 ERR_FILE_CLOSED = -420
+ERR_FILE_NOT_FOUND = -430
 ERR_EOF = -399
 ERR_MOUNTED = -650
+ERR_PERMISSIONS = -333
 
 
 # Bytes in block
@@ -48,6 +50,11 @@ FREE_MASKT = 7
 TYPE_BYTE = 0
 SIZE_BYTE = 1
 REM_BYTE = 2  # size of last block in file, stored in inode
+RW_BYTE = 3  # read write byte, permissions below
+
+# permissions
+P_RW = 0
+P_READ = 1
 
 # named superblock indecies
 SUPER_BLOCK = 0
@@ -116,27 +123,6 @@ def createInode(blocks, bType=INODE_BLOCKT):
     return blockNum
 
 
-# updates metadata and writes block nums to inode
-def updateInode(blockNum, newBlocks):
-    idata = [0]*META_SIZE
-    idata[SIZE_BYTE] = len(newBlocks)  # size of data
-    idata += newBlocks
-
-    ibuf = Buffer()
-    ibuf.data_bytes = bytearray(idata)
-
-    if writeBlock(DISK, blockNum, ibuf) < 0:
-        print(f"updateInode: ERR_DISK")
-        return ERR_DISK
-    return blockNum
-
-
-def stat(FD):
-    ibuf = Buffer()
-    readBlock(DISK, FD, ibuf)
-    return list(ibuf.data_bytes)[:META_SIZE]
-
-
 # from inode block number, reads all blocks pointed to by inode
 def readViaInode(inodeBNum, meta=False):
     iBuf = Buffer()
@@ -182,6 +168,9 @@ def writeViaInode(inodeBNum, data):
     readBlock(DISK, inodeBNum, iBuf)
     iMeta = list(iBuf.data_bytes)[:META_SIZE]
     iData = list(iBuf.data_bytes)[META_SIZE:]
+    if iMeta[RW_BYTE] == P_READ:
+        print(f"ERR: READ ONLY FD: {inodeBNum}")
+        return ERR_PERMISSIONS
 
     restData = data
     numBlocksUsed = 0  # used to index into inode claimed blocks
@@ -375,9 +364,12 @@ def tfs_close(fileDescriptor):
 def tfs_write(FD, data):
     if FD not in DRT:
         return ERR_FILE_CLOSED
-    DRT[FD] = 0
-
-    return writeViaInode(FD, data)
+    err = writeViaInode(FD, data)
+    if err >= 0:
+        DRT[FD] = 0
+        return 0
+    else:
+        return err
 
 
 ###
@@ -439,3 +431,50 @@ def tfs_seek(FD, offset):
             f"tfs_seek: ERR_EOF, FD: {FD}, len: {len(data)}, sought: {offset}")
         return ERR_EOF
     DRT[FD] = offset
+
+
+# renames file named oldName to newName...
+def tfs_rename(oldName, newName):
+    global DIRENT
+    if oldName not in DIRENT:
+        print(f"tfs_rename: ERR_FILE_NOT_FOUND name: {oldName}")
+        return ERR_FILE_NOT_FOUND
+
+    oldFD = DIRENT[oldName]
+    del DIRENT[oldName]
+    DIRENT[newName] = oldFD
+
+
+# prints all files in dir (and dirs, but no hierarchical dirs)
+def tfs_readdir():
+    [print(f) for f in list(DIRENT.keys())]
+
+
+# make file indicated by name write only
+def tfs_makeRO(name):
+    if name not in DIRENT:
+        print(f"tfs_makeRO: ERR_FILE_NOT_FOUND name: {name}")
+        return ERR_FILE_NOT_FOUND
+    b = Buffer()
+    readBlock(DISK, DIRENT[name], b)
+    meta = list(b.data_bytes)[:META_SIZE]
+    meta[RW_BYTE] = P_READ
+    newMeta = Buffer()
+    newMeta.data_bytes = bytearray(meta)
+    writeBlock(DISK, DIRENT[name], newMeta)
+    return 0
+
+
+# make file read write
+def tfs_makeRW(name):
+    if name not in DIRENT:
+        print(f"tfs_makeRO: ERR_FILE_NOT_FOUND name: {name}")
+        return ERR_FILE_NOT_FOUND
+    b = Buffer()
+    readBlock(DISK, DIRENT[name], b)
+    meta = list(b.data_bytes)[:META_SIZE]
+    meta[RW_BYTE] = P_RW
+    newMeta = Buffer()
+    newMeta.data_bytes = bytearray(meta)
+    writeBlock(DISK, DIRENT[name], newMeta)
+    return 0

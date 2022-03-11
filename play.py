@@ -43,6 +43,42 @@ fd2 = tfs_open("file2")
 tfs_seek(fd, 3)
 tfs_readByte(fd, buf)
 print('ff', list(buf.data_bytes))
+
+tfs_readdir()
+tfs_rename("file1.tst", "renamed")
+tfs_readdir()
+
+
+newFD = tfs_open("newfile")
+tfs_write(newFD, list(range(20)))
+
+tfs_readByte(newFD, buf)
+print(list(buf.data_bytes))
+
+tfs_seek(newFD, 10)
+tfs_readByte(newFD, buf)
+print(list(buf.data_bytes))
+
+
+tfs_makeRO("newfile")
+tfs_write(newFD, [9, 9, 9])
+tfs_readByte(newFD, buf)
+print(list(buf.data_bytes))
+tfs_readByte(newFD, buf)
+print(list(buf.data_bytes))
+tfs_readByte(newFD, buf)
+print(list(buf.data_bytes))
+
+tfs_makeRW("newfile")
+tfs_write(newFD, [9, 9, 9])
+tfs_readByte(newFD, buf)
+print(list(buf.data_bytes))
+tfs_readByte(newFD, buf)
+print(list(buf.data_bytes))
+tfs_readByte(newFD, buf)
+print(list(buf.data_bytes))
+tfs_readByte(newFD, buf)
+print(list(buf.data_bytes))
 # printMem()
 # tfs_unmount()
 # printMem()
