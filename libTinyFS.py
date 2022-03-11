@@ -1,4 +1,7 @@
+from asyncore import write
 from curses.ascii import VT
+
+from numpy import byte
 from libDisk import *
 
 ###
@@ -40,7 +43,7 @@ FREE_MASKT = 7
 
 # named indecies in block
 TYPE_BYTE = 0
-SIZE_BYTE = 2
+SIZE_BYTE = 1
 
 # named superblock indecies
 SUPER_BLOCK = 0
@@ -69,42 +72,6 @@ DISK = None
 FILLED = 1
 EMPTY = 0
 FREE_MASK = None
-
-
-# Finds all bytes available from blockNum, including further blocks
-# def fetchBytes(blockNum):
-#     nextBlock = blockNum
-#     data = []  # list of data
-#     blockType = None
-#     while nextBlock > 0:
-#         blockData = Buffer()
-#         errCode = readBlock(DISK, blockNum, blockData)
-
-#         if errCode < 0:
-#             return errCode
-
-#         currBlockType = list(blockData)[TYPE_BYTE]
-#         sz = list(blockData)[SIZE_BYTE]
-
-#         if blockType is None:
-#             blockType = currBlockType
-
-#         elif currBlockType != blockType:
-#             # Error thrown because file contains pointers to block of different types
-#             return ERR_INCONSISTENT_BLOCKS
-
-#         if blockType == DIRENT_NAMET:  # reading string data for names of files
-#             # ignore metadata and stop at size
-#             rawData = blockData[3:sz].decode("utf-8")
-#             rawData.split('\n')
-#             data += rawData
-#         else:
-#             data += list(blockData[3:sz])
-#         if sz < BLOCKSIZE:  # block is interally fragmented, no further blocks to read
-#             break
-
-#         nextBlock = list(blockData[NEXT_BLOCK])  # CHANGE
-#     return data
 
 
 # Searches bit mask for first or last 0, sets it to 1
@@ -159,10 +126,9 @@ def updateInode(blockNum, newBlocks, newSize):
         return ERR_DISK
     return blockNum
 
+
 # from inode block number, reads all blocks pointed to by inode
-
-
-def readFromInode(inodeBNum):
+def readViaInode(inodeBNum):
     iBuf = Buffer()
     if readBlock(DISK, inodeBNum, iBuf) < 0:
         print("readFromInode: ERR_DISK")
@@ -170,8 +136,67 @@ def readFromInode(inodeBNum):
 
     iData = list(iBuf.data_bytes)
     meta = iData[:META_SIZE]
-    data = iData[META_SIZE:]
-    print(meta, data)
+    blocks = iData[META_SIZE:]
+
+    allData = []
+    # read all blocks and combine them
+    for bNum in blocks[:meta[SIZE_BYTE]]:
+        buf = Buffer()
+        readBlock(DISK, bNum, buf)
+        bData = list(buf.data_bytes)
+        # from block, read all data after meta data, up to size of block
+        allData += bData[META_SIZE:bData[SIZE_BYTE]]
+    return allData
+
+
+# Write to a block and updates its metadata, returns data that can't fit into block
+def writeBlockMeta(bNum, data):
+    toWrite = [0]*META_SIZE
+    # Either write all data or fill available space
+    dataWriteLen = min(BLOCKSIZE-META_SIZE, len(data))
+    toWrite[SIZE_BYTE] = dataWriteLen
+    toWrite[TYPE_BYTE] = DATA_BLOCKT
+
+    # only write data that we can
+    toWrite += data[:dataWriteLen]
+    wBuf = Buffer()
+    wBuf.data_bytes = bytearray(toWrite)
+    writeBlock(DISK, bNum, wBuf)
+
+    return data[dataWriteLen:]  # returns data not written
+
+
+# finda inode via block number, writes data (list), overwriting, updates metadata
+def writeViaInode(inodeBNum, data):
+    iBuf = Buffer()
+    readBlock(DISK, inodeBNum, iBuf)
+    iMeta = list(iBuf.data_bytes)[:META_SIZE]
+    iData = list(iBuf.data_bytes)[META_SIZE:]
+
+    restData = data
+    numBlocksUsed = 0  # used to index into inode claimed blocks
+    usedBNums = []  # keep track of what blocks we write to
+    while len(restData) > 0:
+        currBlock = None
+        # if inode already claimed a block for this chunk
+        if numBlocksUsed < iMeta[SIZE_BYTE]:
+            currBlock = iData[numBlocksUsed]
+        else:  # inode needs new block
+            currBlock = claimFreeBlock(
+                first=(iMeta[TYPE_BYTE] != INODE_BLOCKT))  # claim first block if dirent or freemask, last otherwise
+        usedBNums.append(currBlock)
+        # write data to block, updating its header, save data that couldn't fit
+        restData = writeBlockMeta(currBlock, restData)
+        numBlocksUsed += 1
+
+    # update meta data for this inode
+    newInodeData = iMeta
+    newInodeData[SIZE_BYTE] = numBlocksUsed
+    newInodeData += usedBNums
+
+    newIBuf = Buffer()
+    newIBuf.data_bytes = bytearray(newInodeData)
+    writeBlock(DISK, inodeBNum, newIBuf)
     return 0
 
 
@@ -183,8 +208,6 @@ def readFromInode(inodeBNum):
 # superblock entry in order: magic_number, root inode pointer, freeblock pointer
 ###
 # tfs_mkfs(str, int) -> int (Success/Error Code)
-
-
 def tfs_mkfs(filename, nBytes=DEFAULT_DISK_SIZE):
     status = 0
     numBlocks = int(nBytes/BLOCKSIZE)
@@ -217,6 +240,9 @@ def tfs_mkfs(filename, nBytes=DEFAULT_DISK_SIZE):
     # file names stored via this INode
     SB[SB_NAME] = createInode([direntNameBlock], 1, DIRENT_NAMET)
 
+    # save Free mask
+    writeViaInode(SB[SB_FREE], FREE_MASK)
+
     supBuf = Buffer()
     supBuf.data_bytes = bytearray(SB)  # save SB to disk
     if writeBlock(DISK, SUPER_BLOCK, supBuf) < 0:
@@ -246,7 +272,13 @@ def tfs_mount(filename):
     if SB[0] != 0x5A:
         return ERR_FS_FORMAT  # Invalid FS format
 
-    readFromInode(SB[SB_FREE])
+    # print(readViaInode(SB[SB_FREE]))
+
+    for i in range(10):
+        b = Buffer()
+        readBlock(DISK, i, b)
+        print(list(b.data_bytes))
+
     # fBuf = Buffer()
     # if readBlock(DISK, SB[SB_FREE], fBuf) < 0:
     #     print("tfS_mount: DISK ERROR")
