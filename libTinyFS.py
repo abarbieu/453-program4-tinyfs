@@ -198,11 +198,11 @@ def writeViaInode(inodeBNum, data):
         restData = writeBlockMeta(currBlock, restData)
         numBlocksUsed += 1
 
-    emptyBuf = Buffer()
-    emptyBuf.data_bytes = bytearray([0] * (BLOCKSIZE-META_SIZE))
     # used fewer blocks than previously allocated
     if numBlocksUsed < iMeta[SIZE_BYTE]:
         for i in range(numBlocksUsed, iMeta[SIZE_BYTE]):
+            emptyBuf = Buffer()
+            emptyBuf.data_bytes = bytearray([0] * (BLOCKSIZE-META_SIZE))
             writeBlock(DISK, iData[i], emptyBuf)
 
     # update meta data for this inode
@@ -393,13 +393,11 @@ def tfs_delete(FD):
     global FREE_MASK
     for i in range(meta[SIZE_BYTE]):
         emptyBuf = Buffer()
-        allZero = [0] * (BLOCKSIZE-META_SIZE)
-        emptyBuf.data_bytes = bytearray(allZero)
+        emptyBuf.data_bytes = bytearray([0] * (BLOCKSIZE-META_SIZE))
         writeBlock(DISK, blocks[i], emptyBuf)
         FREE_MASK[blocks[i]] = EMPTY
     emptyBuf = Buffer()
-    allZero = [0] * (BLOCKSIZE-META_SIZE)
-    emptyBuf.data_bytes = bytearray(allZero)
+    emptyBuf.data_bytes = bytearray([0] * (BLOCKSIZE-META_SIZE))
     writeBlock(DISK, FD, emptyBuf)  # clear inode block and set it to free
     FREE_MASK[FD] = EMPTY
     global DIRENT
