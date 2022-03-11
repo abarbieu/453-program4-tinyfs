@@ -35,16 +35,14 @@ fd = tfs_open("file1.tst")
 buf = Buffer()
 tfs_readByte(fd, buf)
 print(list(buf.data_bytes))
-tfs_readByte(fd, buf)
-print(list(buf.data_bytes))
-tfs_readByte(fd, buf)
-print(list(buf.data_bytes))
-tfs_readByte(fd, buf)
-print(list(buf.data_bytes))
 
 
 fd2 = tfs_open("file2")
-tfs_delete(fd)
+
+
+tfs_seek(fd, 3)
+tfs_readByte(fd, buf)
+print('ff', list(buf.data_bytes))
 # printMem()
 # tfs_unmount()
 # printMem()

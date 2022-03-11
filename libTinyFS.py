@@ -47,6 +47,7 @@ FREE_MASKT = 7
 # named indecies in block
 TYPE_BYTE = 0
 SIZE_BYTE = 1
+REM_BYTE = 2  # size of last block in file, stored in inode
 
 # named superblock indecies
 SUPER_BLOCK = 0
@@ -432,9 +433,9 @@ def tfs_readByte(FD, buffer):
 def tfs_seek(FD, offset):
     if FD not in DRT:
         print(f"tfs_seek: ERR_FILE_CLOSED, FD: {FD}")
-    meta = stat(FD)
-    if offset > meta[SIZE_BYTE]:
+    data = readViaInode(FD)  # this is dumb
+    if offset > len(data):
         print(
-            f"tfs_seek: ERR_EOF, FD: {FD}, len: {meta[SIZE_BYTE]}, sought: {offset}")
+            f"tfs_seek: ERR_EOF, FD: {FD}, len: {len(data)}, sought: {offset}")
         return ERR_EOF
     DRT[FD] = offset
